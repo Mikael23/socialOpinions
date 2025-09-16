@@ -1,6 +1,6 @@
 import hashlib
 import sqlite3
-from typing import List, Dict
+from typing import List, Dict, Optional
 
 import numpy as np
 from sentence_transformers import SentenceTransformer
@@ -37,7 +37,50 @@ class BD:
         embeddings = self.embed_texts(chunks)
         ids = [self._stable_id(ch, base_meta.get("docId", "doc")) for ch in chunks]
         metadatas = [{**base_meta, "len": len(ch), "model": self.EMBED_MODEL_NAME} for ch in chunks]
+
         self._collection.upsert(ids=ids, embeddings=embeddings, documents=chunks, metadatas=metadatas)
+
+    def searchBySubject(self, col, query: str, subjectUserId: str, k: int = 10, surveyId: Optional[str] = None):
+        where = {"subjectUserId": subjectUserId}
+        if surveyId:
+            where["surveyId"] = surveyId
+        res = col.query(
+            query_texts=[query],
+            n_results=min(k * 4, 100),
+            where=where,
+            include=["documents", "metadatas", "ids", "distances"]
+        )
+        return self._flatten(res)[:k]
+
+    def searchAuthorAboutSubject(self, col, query: str, authorUserId: str, subjectUserId: str, k: int = 10):
+        res = col.query(
+            query_texts=[query],
+            n_results=min(k * 4, 100),
+            where={"authorUserId": authorUserId, "subjectUserId": subjectUserId},
+            include=["documents", "metadatas", "ids", "distances"]
+        )
+        return self._flatten(res)[:k]
+
+    def searchSurveyByAuthor(self, col, query: str, surveyId: str, authorUserId: str, k: int = 10):
+        res = col.query(
+            query_texts=[query],
+            n_results=min(k * 4, 100),
+            where={"surveyId": surveyId, "authorUserId": authorUserId},
+            include=["documents", "metadatas", "ids", "distances"]
+        )
+        return self._flatten(res)[:k]
+
+    def _flatten(res):
+        hits = []
+        if res.get("ids") and res["ids"]:
+            ids = res["ids"][0];
+            docs = res["documents"][0];
+            metas = res["metadatas"][0];
+            dists = res["distances"][0]
+            for i in range(len(ids)):
+                hits.append({"id": ids[i], "text": docs[i], "meta": metas[i], "score": 1 - dists[i]})
+        return hits
+
 
 
     def init_vector_bd(self, bd_path: str):
@@ -67,6 +110,8 @@ class BD:
             embeddings=embedings,
             documents=tokens
         )
+
+
 
     def get_doc(self):
         return BD.collection.get(include=["documents", "metadatas", "embeddings"])
