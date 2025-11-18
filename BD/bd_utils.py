@@ -8,6 +8,8 @@ from chromadb.config import Settings
 import chromadb
 from sklearn.metrics.pairwise import cosine_similarity
 from transformers import AutoTokenizer
+from ML.summarize_opinions import summarize_opinions
+from project_requests import SurveyResponseIn
 
 
 class BD:
@@ -16,41 +18,44 @@ class BD:
     EMBED_MODEL_NAME = "sentence-transformers/all-MiniLM-L6-v2"  # 384-dim, fast
     embedder = SentenceTransformer(EMBED_MODEL_NAME)
 
-
-    _client = chromadb.PersistentClient(path="/Users/I552581/Library/CloudStorage/OneDrive-SAPSE/Documents/MachineLearning/BaseLine/BD/chroma_db", settings=Settings(allow_reset=True))
+    _client = chromadb.PersistentClient(
+        path="/Users/I552581/Library/CloudStorage/OneDrive-SAPSE/Documents/MachineLearning/BaseLine/BD/chroma_db",
+        settings=Settings(allow_reset=True))
     _collection = _client.get_or_create_collection(name="opinions", metadata={"hnsw:space": "cosine"})
 
     def _stable_id(self, text: str, scope: str) -> str:
-        h = hashlib.sha1((scope + "||" + text[:2048]).encode("utf-8")).hexdigest()
+        h = hashlib.sha1((str(scope) + "||" + text[:2048]).encode("utf-8")).hexdigest()
         return f"{scope}_{h}"
 
-
-    #the method embed_texts is responsible for turning each chunk of text into a numeric vector (embedding)
+    # the method embed_texts is responsible for turning each chunk of text into a numeric vector (embedding)
     # using your chosen embedding model (in your case it looks like self.EMBED_MODEL_NAME).
     def embed_texts(self, texts: List[str]) -> List[List[float]]:
         return self.embedder.encode(texts, normalize_embeddings=True).tolist()
 
-
-    def  upsert_chunks(self, chunks: List[str], base_meta: Dict):
+    def upsert_chunks(self, chunks: List[str], base_meta: dict):
         if not chunks:
             return
         embeddings = self.embed_texts(chunks)
-        ids = [self._stable_id(ch, base_meta.get("docId", "doc")) for ch in chunks]
-        metadatas = [{**base_meta, "len": len(ch), "model": self.EMBED_MODEL_NAME} for ch in chunks]
+        ids = [self._stable_id(ch, base_meta.get("id")) for ch in chunks]
+
+        metadatas = [{**{k: v for k, v in base_meta.items() if k != "comment"},
+                      "chunkIndex": i,
+                      "len": len(ch),
+                      "model": self.EMBED_MODEL_NAME}
+                     for i, ch in enumerate(chunks)]
 
         self._collection.upsert(ids=ids, embeddings=embeddings, documents=chunks, metadatas=metadatas)
 
-    def searchBySubject(self, col, query: str, subjectUserId: str, k: int = 10, surveyId: Optional[str] = None):
-        where = {"subjectUserId": subjectUserId}
-        if surveyId:
-            where["surveyId"] = surveyId
-        res = col.query(
-            query_texts=[query],
-            n_results=min(k * 4, 100),
+    def searchBySubject(self, surveyId: int = None,  k: int = 20):
+        where = {"surveyId": surveyId}
+
+        res = self._collection.get(
             where=where,
-            include=["documents", "metadatas", "ids", "distances"]
+            limit=k,
+            include=["documents", "metadatas"]
         )
-        return self._flatten(res)[:k]
+        comments = res["documents"]
+        return summarize_opinions(comments)
 
     def searchAuthorAboutSubject(self, col, query: str, authorUserId: str, subjectUserId: str, k: int = 10):
         res = col.query(
@@ -59,7 +64,7 @@ class BD:
             where={"authorUserId": authorUserId, "subjectUserId": subjectUserId},
             include=["documents", "metadatas", "ids", "distances"]
         )
-        return self._flatten(res)[:k]
+        return summarize_opinions(h["text"] for h in self._flatten(res))
 
     def searchSurveyByAuthor(self, col, query: str, surveyId: str, authorUserId: str, k: int = 10):
         res = col.query(
@@ -70,18 +75,15 @@ class BD:
         )
         return self._flatten(res)[:k]
 
-    def _flatten(res):
+    def _flatten(self, res):
         hits = []
         if res.get("ids") and res["ids"]:
             ids = res["ids"][0];
             docs = res["documents"][0];
             metas = res["metadatas"][0];
-            dists = res["distances"][0]
             for i in range(len(ids)):
                 hits.append({"id": ids[i], "text": docs[i], "meta": metas[i], "score": 1 - dists[i]})
         return hits
-
-
 
     def init_vector_bd(self, bd_path: str):
         client = chromadb.Client(Settings(
@@ -100,18 +102,18 @@ class BD:
         # con.commit()
         # con.close()
 
-    def insert_to_vector_db(self, tokens: List[str], db_path: str):
-        model_name = 'google/flan-t5-base'
-        tokenizer = AutoTokenizer.from_pretrained(model_name, use_fast=True, is_trainable=True)
-        embedings = tokenizer.encode(tokens)
-        print(tokens)
-        BD.collection.add(
-            ids=tokens,
-            embeddings=embedings,
-            documents=tokens
-        )
-
-
+    # long
+    # id,
+    # long
+    # surveyId,
+    # long
+    # areaId,
+    # long
+    # userId,
+    # String
+    # message,
+    # LocalDateTime
+    # localDateTime
 
     def get_doc(self):
         return BD.collection.get(include=["documents", "metadatas", "embeddings"])
@@ -130,8 +132,8 @@ class BD:
         for doc in res['documents'][0]:
             c = self.model.encode(doc)
 
-            c = np.expand_dims(c,axis=0)
-            sim = cosine_similarity(embeddings,c)
+            c = np.expand_dims(c, axis=0)
+            sim = cosine_similarity(embeddings, c)
             print(sim, doc)
 
 

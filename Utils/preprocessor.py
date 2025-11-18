@@ -13,7 +13,7 @@ class TextProcessing:
         text = re.compile(r"\s+").sub(" ", text).strip()
         return text
 
-    def chunk_text(text: str, chunk_size: int = 160, overlap: int = 30) -> List[str]:
+    def chunk_text(self, text: str, chunk_size: int = 160, overlap: int = 30) -> List[str]:
         words = text.split()
         out = []
         i = 0
@@ -38,7 +38,8 @@ if __name__ == '__main__':
 #
 # Imagine a long survey response or comment like:
 #
-# "I went to the gym yesterday, the equipment was broken, the trainer was helpful though, and the shower was dirty. In the café afterwards the food was decent but overpriced…"
+# "I went to the gym yesterday, the equipment was broken, the trainer was helpful though,
+# and the shower was dirty. In the café afterwards the food was decent but overpriced…"
 #
 # If you send this whole block (say 1,000+ tokens) to your embedding model:
 #
