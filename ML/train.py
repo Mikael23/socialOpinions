@@ -30,7 +30,7 @@ class Train:
     tokenizer = AutoTokenizer.from_pretrained('google/flan-t5-base', use_fast=True, is_trainable=True)
 
     def compute_metrics(self,eval_pred):
-        predictions, labels = eval_pred
+        predictions, labels = eval_predS
         predictions = predictions[:, 0]
         print('HEre we are!!!!!!')
         return metric.compute(predictions=predictions, references=labels)
